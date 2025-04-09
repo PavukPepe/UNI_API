@@ -22,9 +22,10 @@ namespace UNI.Controllers
 
         // GET: api/Categories
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Category>>> GetCategories()
+        public IActionResult GetCategories()
         {
-            return await _context.Categories.ToListAsync();
+            var categories = _context.Categories.Select(c => new { c.CategoryId, c.CategoryName }).ToList();
+            return Ok(categories);
         }
 
         // GET: api/Categories/5
