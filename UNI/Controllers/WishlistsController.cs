@@ -20,77 +20,60 @@ namespace UNI.Controllers
             _context = context;
         }
 
-        // GET: api/Wishlists
+        // GET: api/wishlists?userId={userId}
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Wishlist>>> GetWishlists()
+        public async Task<ActionResult<IEnumerable<int>>> GetWishlists([FromQuery] int userId)
         {
-            return await _context.Wishlists.ToListAsync();
+            if (userId <= 0) return BadRequest("Неверный ID пользователя");
+
+            var wishlistCourseIds = await _context.Wishlists
+                .Where(w => w.UserId == userId)
+                .Select(w => w.CourseId)
+                .ToListAsync();
+
+            return Ok(wishlistCourseIds);
         }
 
-        // GET: api/Wishlists/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Wishlist>> GetWishlist(int id)
-        {
-            var wishlist = await _context.Wishlists.FindAsync(id);
-
-            if (wishlist == null)
-            {
-                return NotFound();
-            }
-
-            return wishlist;
-        }
-
-        // PUT: api/Wishlists/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutWishlist(int id, Wishlist wishlist)
-        {
-            if (id != wishlist.WishlistId)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(wishlist).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!WishlistExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            return NoContent();
-        }
-
-        // POST: api/Wishlists
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        // POST: api/wishlists
         [HttpPost]
-        public async Task<ActionResult<Wishlist>> PostWishlist(Wishlist wishlist)
+        public async Task<ActionResult> AddToWishlist([FromBody] WishlistDto wishlistDto)
         {
+            if (wishlistDto.UserId <= 0) return BadRequest("Неверный ID пользователя");
+
+            // Проверяем, не добавлен ли курс уже в избранное
+            var existingWishlist = await _context.Wishlists
+                .FirstOrDefaultAsync(w => w.UserId == wishlistDto.UserId && w.CourseId == wishlistDto.CourseId);
+
+            if (existingWishlist != null)
+            {
+                return BadRequest("Курс уже добавлен в избранное");
+            }
+
+            var wishlist = new Wishlist
+            {
+                UserId = wishlistDto.UserId,
+                CourseId = wishlistDto.CourseId,
+                AddedDate = DateTime.Now
+            };
+
             _context.Wishlists.Add(wishlist);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction("GetWishlist", new { id = wishlist.WishlistId }, wishlist);
+            return Ok();
         }
 
-        // DELETE: api/Wishlists/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteWishlist(int id)
+        // DELETE: api/wishlists/{courseId}?userId={userId}
+        [HttpDelete("{courseId}")]
+        public async Task<IActionResult> DeleteWishlist(int courseId, [FromQuery] int userId)
         {
-            var wishlist = await _context.Wishlists.FindAsync(id);
+            if (userId <= 0) return BadRequest("Неверный ID пользователя");
+
+            var wishlist = await _context.Wishlists
+                .FirstOrDefaultAsync(w => w.UserId == userId && w.CourseId == courseId);
+
             if (wishlist == null)
             {
-                return NotFound();
+                return NotFound("Курс не найден в избранном");
             }
 
             _context.Wishlists.Remove(wishlist);
@@ -99,9 +82,11 @@ namespace UNI.Controllers
             return NoContent();
         }
 
-        private bool WishlistExists(int id)
+        // DTO для добавления в избранное
+        public class WishlistDto
         {
-            return _context.Wishlists.Any(e => e.WishlistId == id);
+            public int UserId { get; set; }
+            public int CourseId { get; set; }
         }
     }
 }

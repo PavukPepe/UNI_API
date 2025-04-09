@@ -23,25 +23,32 @@ namespace UNI.Controllers
 
         // GET: api/Courses
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Course>>> GetCourses()
+        public async Task<ActionResult<IEnumerable<Course>>> GetCourses([FromQuery] int? categoryId)
         {
-            return await _context.Courses.ToListAsync();
+            var query = _context.Courses.AsQueryable();
+
+            if (categoryId.HasValue)
+            {
+                query = query.Where(c => c.CategoryId == categoryId.Value);
+            }
+
+            var courses = await query
+                .Select(c => new
+                {
+                    courseId = c.CourseId, // Соответствует ожидаемому полю в CourseCard
+                    title = c.CourseTitle,
+                    description = c.CourseDescription,
+                    image = c.CourseLogo ?? "/course.png",
+                    rating = c.AverageRating ?? 0,
+                    students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
+                    instructor = c.Author.FullName
+                })
+                .ToListAsync();
+
+            return Ok(courses);
         }
 
-        //// GET: api/Courses/5
-        //[HttpGet("{id}")]
-        //public async Task<ActionResult<Course>> GetCourse(int id)
-        //{
-        //    var course = await _context.Courses.FindAsync(id);
-
-        //    if (course == null)
-        //    {
-        //        return NotFound();
-        //    }
-
-        //    return course;
-        //}
-
+        // GET: api/Courses/own
         [HttpGet("own")]
         public async Task<ActionResult> GetCourses([FromQuery] int? categoryId, [FromQuery] int? authorId)
         {
@@ -62,16 +69,18 @@ namespace UNI.Controllers
                     id = c.CourseId,
                     title = c.CourseTitle,
                     description = c.CourseDescription,
-                    students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)), // Количество студентов
+                    students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
                     rating = c.AverageRating ?? 0,
-                    progress = 100, // Пока захардкодим, позже можно добавить логику
-                    image = c.CourseLogo ?? "/placeholder.jpg"
+                    progress = 100, // Пока захардкодим
+                    image = c.CourseLogo ?? "/course.png",
+                    categoryId = c.CategoryId // Добавляем для фронтенда
                 })
                 .ToListAsync();
 
             return Ok(courses);
         }
 
+        // GET: api/Courses/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult> GetCourse(int id)
         {
@@ -84,7 +93,7 @@ namespace UNI.Controllers
 
             if (course == null) return NotFound();
 
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value; // Если авторизация включена
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var progress = userId != null
                 ? await _context.Userprogresses
                     .Where(up => up.UserId == int.Parse(userId) && up.Step.Topic.Block.CourseId == id)
@@ -96,6 +105,7 @@ namespace UNI.Controllers
                 id = course.CourseId,
                 title = course.CourseTitle,
                 description = course.CourseDescription,
+                categoryId = course.CategoryId, // Добавляем categoryId
                 blocks = course.Blocks.Select(b => new
                 {
                     id = b.BlockId,
@@ -108,6 +118,8 @@ namespace UNI.Controllers
                         {
                             id = s.StepId,
                             title = s.StepTitle,
+                            content = s.StepContent, // Добавляем содержимое шага
+                            type = s.ContentType,    // Добавляем тип контента
                             completed = progress != null && progress.Any(p => p.StepId == s.StepId && (p.IsCompleted ?? false))
                         })
                     })
@@ -117,37 +129,88 @@ namespace UNI.Controllers
             return Ok(result);
         }
 
-        // PUT: api/Courses/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        // PUT: api/Courses/{id}
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCourse(int id, Course course)
+        public async Task<IActionResult> PutCourse(int id, [FromBody] CourseDto courseDto)
         {
-            if (id != course.CourseId)
+            var existingCourse = await _context.Courses
+                .Include(c => c.Blocks)
+                    .ThenInclude(b => b.Topics)
+                        .ThenInclude(t => t.Steps)
+                .FirstOrDefaultAsync(c => c.CourseId == id);
+
+            if (existingCourse == null)
             {
-                return BadRequest();
+                return NotFound();
             }
 
-            _context.Entry(course).State = EntityState.Modified;
+            // Обновляем основные поля курса
+            existingCourse.CourseTitle = courseDto.Title;
+            existingCourse.CourseDescription = courseDto.Description;
+            existingCourse.CategoryId = courseDto.CategoryId;
+            existingCourse.AuthorId = Convert.ToInt32(courseDto.UserId);
+
+            // Удаляем старые блоки, темы и шаги
+            foreach (var block in existingCourse.Blocks.ToList())
+            {
+                foreach (var topic in block.Topics.ToList())
+                {
+                    _context.Steps.RemoveRange(topic.Steps);
+                    _context.Topics.Remove(topic);
+                }
+                _context.Blocks.Remove(block);
+            }
+
+            // Добавляем новые блоки, темы и шаги
+            foreach (var blockDto in courseDto.Blocks)
+            {
+                var block = new Block
+                {
+                    CourseId = id,
+                    BlockTitle = blockDto.Title,
+                    DisplayOrder = blockDto.Order
+                };
+                _context.Blocks.Add(block);
+                await _context.SaveChangesAsync(); // Сохраняем, чтобы получить BlockId
+
+                foreach (var topicDto in blockDto.Topics)
+                {
+                    var topic = new Topic
+                    {
+                        BlockId = block.BlockId,
+                        TopicTitle = topicDto.Title,
+                        DisplayOrder = topicDto.Order
+                    };
+                    _context.Topics.Add(topic);
+                    await _context.SaveChangesAsync(); // Сохраняем, чтобы получить TopicId
+
+                    foreach (var stepDto in topicDto.Steps)
+                    {
+                        var step = new Step
+                        {
+                            TopicId = topic.TopicId,
+                            StepTitle = stepDto.Title,
+                            ContentType = stepDto.Type,
+                            StepContent = stepDto.Content,
+                            DisplayOrder = stepDto.Order
+                        };
+                        _context.Steps.Add(step);
+                    }
+                }
+            }
 
             try
             {
                 await _context.SaveChangesAsync();
+                return Ok();
             }
-            catch (DbUpdateConcurrencyException)
+            catch (Exception ex)
             {
-                if (!CourseExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                return StatusCode(500, $"Ошибка при обновлении курса: {ex.Message}");
             }
-
-            return NoContent();
         }
 
+        // POST: api/Courses
         [HttpPost]
         public IActionResult CreateCourse([FromBody] CourseDto courseDto)
         {
@@ -155,7 +218,7 @@ namespace UNI.Controllers
             {
                 CourseTitle = courseDto.Title,
                 CourseDescription = courseDto.Description,
-                CategoryId = Convert.ToInt32(courseDto.CategoryId),
+                CategoryId = courseDto.CategoryId,
                 AuthorId = Convert.ToInt32(courseDto.UserId),
                 CreationDate = DateTime.Now,
                 IsApproved = false
@@ -203,6 +266,27 @@ namespace UNI.Controllers
             return Ok(new { course.CourseId });
         }
 
+        // DELETE: api/Courses/{id}
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCourse(int id)
+        {
+            var course = await _context.Courses.FindAsync(id);
+            if (course == null)
+            {
+                return NotFound();
+            }
+
+            _context.Courses.Remove(course);
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        private bool CourseExists(int id)
+        {
+            return _context.Courses.Any(e => e.CourseId == id);
+        }
+
+        // DTO классы остаются без изменений
         public class CourseDto
         {
             public string Title { get; set; }
@@ -232,27 +316,6 @@ namespace UNI.Controllers
             public string Type { get; set; }
             public string Content { get; set; }
             public int Order { get; set; }
-        }
-
-        // DELETE: api/Courses/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCourse(int id)
-        {
-            var course = await _context.Courses.FindAsync(id);
-            if (course == null)
-            {
-                return NotFound();
-            }
-
-            _context.Courses.Remove(course);
-            await _context.SaveChangesAsync();
-
-            return NoContent();
-        }
-
-        private bool CourseExists(int id)
-        {
-            return _context.Courses.Any(e => e.CourseId == id);
         }
     }
 }
