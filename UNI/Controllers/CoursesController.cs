@@ -41,7 +41,8 @@ namespace UNI.Controllers
                     image = c.CourseLogo ?? "/course.png",
                     rating = c.AverageRating ?? 0,
                     students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
-                    instructor = c.Author.FullName
+                    instructor = c.Author.FullName,
+                    price = c.CoursePrice
                 })
                 .ToListAsync();
 
@@ -104,6 +105,8 @@ namespace UNI.Controllers
             {
                 id = course.CourseId,
                 title = course.CourseTitle,
+                price = course.CoursePrice,
+                instructor = course.Author.FullName,
                 description = course.CourseDescription,
                 categoryId = course.CategoryId, // Добавляем categoryId
                 blocks = course.Blocks.Select(b => new

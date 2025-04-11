@@ -21,11 +21,11 @@ namespace UNI.Controllers
         }
 
         // GET: api/Payments
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<Payment>>> GetPayments()
-        {
-            return await _context.Payments.ToListAsync();
-        }
+        //[HttpGet]
+        //public async Task<ActionResult<IEnumerable<Payment>>> GetPayments()
+        //{
+        //    return await _context.Payments.ToListAsync();
+        //}
 
         // GET: api/Payments/5
         [HttpGet("{id}")]
@@ -72,11 +72,23 @@ namespace UNI.Controllers
             return NoContent();
         }
 
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<int>>> GetEnrolledCourses(int userId)
+        {
+            var wishlistCourseIds = await _context.Payments
+                .Where(w => w.UserId == userId)
+                .Select(w => w.CourseId)
+                .ToListAsync();
+
+            return Ok(wishlistCourseIds);
+        }
+
         // POST: api/Payments
         // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
         public async Task<ActionResult<Payment>> PostPayment(Payment payment)
         {
+            payment.PaymentDate = DateTime.Now;
             _context.Payments.Add(payment);
             await _context.SaveChangesAsync();
 
