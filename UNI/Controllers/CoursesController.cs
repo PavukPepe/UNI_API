@@ -39,7 +39,8 @@ namespace UNI.Controllers
                     title = c.CourseTitle,
                     description = c.CourseDescription,
                     image = c.CourseLogo ?? "/course.png",
-                    rating = c.AverageRating ?? 0,
+                    rating = c.Reviews.Select(c => c.UserRating).Average() ?? 0,
+                    review = c.Reviews.Count(),
                     students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
                     instructor = c.Author.FullName,
                     price = c.CoursePrice
@@ -71,7 +72,7 @@ namespace UNI.Controllers
                     title = c.CourseTitle,
                     description = c.CourseDescription,
                     students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
-                    rating = c.AverageRating ?? 0,
+                    rating = Math.Round(c.Reviews.Select(c => c.UserRating).Average() ?? 0d, 2),
                     progress = 100, // Пока захардкодим
                     image = c.CourseLogo ?? "/course.png",
                     categoryId = c.CategoryId // Добавляем для фронтенда
@@ -83,21 +84,21 @@ namespace UNI.Controllers
 
         // GET: api/Courses/{id}
         [HttpGet("{id}")]
-        public async Task<ActionResult> GetCourse(int id)
+        public async Task<ActionResult> GetCourse(int id, [FromQuery] int? userId = null)
         {
             var course = await _context.Courses
                 .Include(c => c.Blocks)
                     .ThenInclude(b => b.Topics)
                         .ThenInclude(t => t.Steps)
                 .Include(c => c.Author)
+                .Include(c => c.Reviews)
                 .FirstOrDefaultAsync(c => c.CourseId == id);
 
             if (course == null) return NotFound();
 
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var progress = userId != null
+            var progress = userId.HasValue
                 ? await _context.Userprogresses
-                    .Where(up => up.UserId == int.Parse(userId) && up.Step.Topic.Block.CourseId == id)
+                    .Where(up => up.UserId == userId && up.Step.Topic.Block.CourseId == id)
                     .ToListAsync()
                 : null;
 
@@ -106,9 +107,18 @@ namespace UNI.Controllers
                 id = course.CourseId,
                 title = course.CourseTitle,
                 price = course.CoursePrice,
-                instructor = course.Author.FullName,
+                instructor = course.Author?.FullName ?? "Неизвестный автор",
                 description = course.CourseDescription,
-                categoryId = course.CategoryId, // Добавляем categoryId
+                logo = course.CourseLogo ?? "/course.png",
+                categoryId = course.CategoryId,
+                reviews = course.Reviews.Select(r => new
+                {
+                    id = r.ReviewId,
+                    text = r.ReviewText,
+                    userName = r.User?.FullName ?? "Аноним",
+                    date = r.SubmissionDate,
+                    rating = r.UserRating
+                }).ToList(),
                 blocks = course.Blocks.Select(b => new
                 {
                     id = b.BlockId,
@@ -121,8 +131,8 @@ namespace UNI.Controllers
                         {
                             id = s.StepId,
                             title = s.StepTitle,
-                            content = s.StepContent, // Добавляем содержимое шага
-                            type = s.ContentType,    // Добавляем тип контента
+                            content = s.StepContent,
+                            type = s.ContentType,
                             completed = progress != null && progress.Any(p => p.StepId == s.StepId && (p.IsCompleted ?? false))
                         })
                     })

@@ -77,6 +77,7 @@ namespace UNI.Controllers
         [HttpPost]
         public async Task<ActionResult<Userprogress>> PostUserprogress(Userprogress userprogress)
         {
+            userprogress.CompletionDate = DateTime.Now;
             _context.Userprogresses.Add(userprogress);
             await _context.SaveChangesAsync();
 

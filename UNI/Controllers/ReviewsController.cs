@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -20,14 +21,32 @@ namespace UNI.Controllers
             _context = context;
         }
 
-        // GET: api/Reviews
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<Review>>> GetReviews()
+        // GET: api/Reviews/course/{courseId} - Получить все отзывы для конкретного курса
+        [HttpGet("course/{courseId}")]
+        public async Task<ActionResult<IEnumerable<Review>>> GetReviewsForCourse(int courseId)
         {
-            return await _context.Reviews.ToListAsync();
+            var reviews = await _context.Reviews
+                .Where(r => r.CourseId == courseId)
+                .Include(r => r.User) // Подгружаем пользователя, если нужен
+                .Select(r => new
+                {
+                    id = r.ReviewId,
+                    text = r.ReviewText,
+                    userName = r.User.FullName ?? "Аноним", // Имя пользователя или "Аноним"
+                    date = r.SubmissionDate,
+                    rating = r.UserRating // Рейтинг, если есть
+                })
+                .ToListAsync();
+
+            //if (reviews == null || !reviews.Any())
+            //{
+            //    return NotFound(new { message = "Отзывов для этого курса не найдено." });
+            //}
+
+            return Ok(reviews);
         }
 
-        // GET: api/Reviews/5
+        // GET: api/Reviews/5 - Получить конкретный отзыв по ID
         [HttpGet("{id}")]
         public async Task<ActionResult<Review>> GetReview(int id)
         {
@@ -41,8 +60,7 @@ namespace UNI.Controllers
             return review;
         }
 
-        // PUT: api/Reviews/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        // PUT: api/Reviews/5 - Обновить отзыв
         [HttpPut("{id}")]
         public async Task<IActionResult> PutReview(int id, Review review)
         {
@@ -72,18 +90,43 @@ namespace UNI.Controllers
             return NoContent();
         }
 
-        // POST: api/Reviews
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<Review>> PostReview(Review review)
+        // POST: api/Reviews/course/{courseId} - Добавить новый отзыв для конкретного курса
+        [HttpPost("course/{courseId}")]
+        public async Task<ActionResult<Review>> PostReview(int courseId, [FromBody] Review review)
         {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var course = await _context.Courses.FindAsync(courseId);
+            if (course == null)
+            {
+                return NotFound(new { message = "Курс не найден." });
+            }
+
+            // Устанавливаем данные для нового отзыва
+            review.CourseId = courseId;
+            review.SubmissionDate = DateTime.Now;
+            review.UserRating = review.UserRating ?? 0; // Устанавливаем рейтинг по умолчанию, если null
+
             _context.Reviews.Add(review);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction("GetReview", new { id = review.ReviewId }, review);
+            // Возвращаем отзыв в формате, который ожидает фронтенд
+            var returnReview = new
+            {
+                id = review.ReviewId,
+                text = review.ReviewText,
+                userName = review.User?.FullName ?? "Аноним",
+                date = review.SubmissionDate,
+                rating = review.UserRating
+            };
+
+            return CreatedAtAction(nameof(GetReview), new { id = review.ReviewId }, returnReview);
         }
 
-        // DELETE: api/Reviews/5
+        // DELETE: api/Reviews/5 - Удалить отзыв
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteReview(int id)
         {
