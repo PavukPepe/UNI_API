@@ -25,7 +25,7 @@ namespace UNI.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Course>>> GetCourses([FromQuery] int? categoryId)
         {
-            var query = _context.Courses.AsQueryable();
+            var query = _context.Courses.Include(c => c.Category).AsQueryable();
 
             if (categoryId.HasValue)
             {
@@ -43,6 +43,8 @@ namespace UNI.Controllers
                     review = c.Reviews.Count(),
                     students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
                     instructor = c.Author.FullName,
+                    isApproved = c.IsApproved,
+                    category = c.Category.CategoryName,
                     price = c.CoursePrice
                 })
                 .ToListAsync();
@@ -142,8 +144,24 @@ namespace UNI.Controllers
             return Ok(result);
         }
 
-        // PUT: api/Courses/{id}
-        [HttpPut("{id}")]
+        [HttpPut("approved/{id}")]
+        public async Task<IActionResult> PutCourse(int id)
+        {
+            var existingCourse = await _context.Courses.FirstOrDefaultAsync(c => c.CourseId == id);
+
+            if (existingCourse == null)
+            {
+                return NotFound();
+            }
+
+            existingCourse.IsApproved = !existingCourse.IsApproved;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { id = existingCourse.CourseId });
+        }
+
+            // PUT: api/Courses/{id}
+            [HttpPut("{id}")]
         public async Task<IActionResult> PutCourse(int id, [FromBody] CourseDto courseDto)
         {
             var existingCourse = await _context.Courses
@@ -163,8 +181,15 @@ namespace UNI.Controllers
             existingCourse.CategoryId = courseDto.CategoryId;
             existingCourse.AuthorId = Convert.ToInt32(courseDto.UserId);
 
-            // Удаляем старые блоки, темы и шаги
-            foreach (var block in existingCourse.Blocks.ToList())
+            // Обработка блоков
+            var existingBlockIds = existingCourse.Blocks.Select(b => b.BlockId).ToList();
+            var newBlockIds = courseDto.Blocks.Where(b => b.Id.HasValue).Select(b => b.Id.Value).ToList();
+
+            // Удаляем блоки, которых нет в новом DTO
+            var blocksToRemove = existingCourse.Blocks
+                .Where(b => !newBlockIds.Contains(b.BlockId))
+                .ToList();
+            foreach (var block in blocksToRemove)
             {
                 foreach (var topic in block.Topics.ToList())
                 {
@@ -174,53 +199,108 @@ namespace UNI.Controllers
                 _context.Blocks.Remove(block);
             }
 
-            // Добавляем новые блоки, темы и шаги
+            // Обрабатываем каждый блок из DTO
             foreach (var blockDto in courseDto.Blocks)
             {
-                var block = new Block
+                Block block;
+                if (blockDto.Id.HasValue && existingCourse.Blocks.Any(b => b.BlockId == blockDto.Id.Value))
                 {
-                    CourseId = id,
-                    BlockTitle = blockDto.Title,
-                    DisplayOrder = blockDto.Order
-                };
-                _context.Blocks.Add(block);
-                await _context.SaveChangesAsync(); // Сохраняем, чтобы получить BlockId
+                    // Обновляем существующий блок
+                    block = existingCourse.Blocks.First(b => b.BlockId == blockDto.Id.Value);
+                    block.BlockTitle = blockDto.Title;
+                    block.DisplayOrder = blockDto.Order;
+                }
+                else
+                {
+                    // Создаем новый блок
+                    block = new Block
+                    {
+                        CourseId = id,
+                        BlockTitle = blockDto.Title,
+                        DisplayOrder = blockDto.Order
+                    };
+                    _context.Blocks.Add(block);
+                    await _context.SaveChangesAsync(); // Сохраняем, чтобы получить BlockId
+                }
+
+                // Обработка тем в блоке
+                var existingTopicIds = block.Topics.Select(t => t.TopicId).ToList();
+                var newTopicIds = blockDto.Topics.Where(t => t.Id.HasValue).Select(t => t.Id.Value).ToList();
+
+                // Удаляем темы, которых нет в новом DTO
+                var topicsToRemove = block.Topics
+                    .Where(t => !newTopicIds.Contains(t.TopicId))
+                    .ToList();
+                foreach (var topic in topicsToRemove)
+                {
+                    _context.Steps.RemoveRange(topic.Steps);
+                    _context.Topics.Remove(topic);
+                }
 
                 foreach (var topicDto in blockDto.Topics)
                 {
-                    var topic = new Topic
+                    Topic topic;
+                    if (topicDto.Id.HasValue && block.Topics.Any(t => t.TopicId == topicDto.Id.Value))
                     {
-                        BlockId = block.BlockId,
-                        TopicTitle = topicDto.Title,
-                        DisplayOrder = topicDto.Order
-                    };
-                    _context.Topics.Add(topic);
-                    await _context.SaveChangesAsync(); // Сохраняем, чтобы получить TopicId
+                        // Обновляем существующую тему
+                        topic = block.Topics.First(t => t.TopicId == topicDto.Id.Value);
+                        topic.TopicTitle = topicDto.Title;
+                        topic.DisplayOrder = topicDto.Order;
+                    }
+                    else
+                    {
+                        // Создаем новую тему
+                        topic = new Topic
+                        {
+                            BlockId = block.BlockId,
+                            TopicTitle = topicDto.Title,
+                            DisplayOrder = topicDto.Order
+                        };
+                        _context.Topics.Add(topic);
+                        await _context.SaveChangesAsync(); // Сохраняем, чтобы получить TopicId
+                    }
+
+                    // Обработка шагов в теме
+                    var existingStepIds = topic.Steps.Select(s => s.StepId).ToList();
+                    var newStepIds = topicDto.Steps.Where(s => s.Id.HasValue).Select(s => s.Id.Value).ToList();
+
+                    // Удаляем шаги, которых нет в новом DTO
+                    var stepsToRemove = topic.Steps
+                        .Where(s => !newStepIds.Contains(s.StepId))
+                        .ToList();
+                    _context.Steps.RemoveRange(stepsToRemove);
 
                     foreach (var stepDto in topicDto.Steps)
                     {
-                        var step = new Step
+                        Step step;
+                        if (stepDto.Id.HasValue && topic.Steps.Any(s => s.StepId == stepDto.Id.Value))
                         {
-                            TopicId = topic.TopicId,
-                            StepTitle = stepDto.Title,
-                            ContentType = stepDto.Type,
-                            StepContent = stepDto.Content,
-                            DisplayOrder = stepDto.Order
-                        };
-                        _context.Steps.Add(step);
+                            // Обновляем существующий шаг
+                            step = topic.Steps.First(s => s.StepId == stepDto.Id.Value);
+                            step.StepTitle = stepDto.Title;
+                            step.ContentType = stepDto.Type;
+                            step.StepContent = stepDto.Content;
+                            step.DisplayOrder = stepDto.Order;
+                        }
+                        else
+                        {
+                            // Создаем новый шаг
+                            step = new Step
+                            {
+                                TopicId = topic.TopicId,
+                                StepTitle = stepDto.Title,
+                                ContentType = stepDto.Type,
+                                StepContent = stepDto.Content,
+                                DisplayOrder = stepDto.Order
+                            };
+                            _context.Steps.Add(step);
+                        }
                     }
                 }
             }
 
-            try
-            {
-                await _context.SaveChangesAsync();
-                return Ok();
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Ошибка при обновлении курса: {ex.Message}");
-            }
+            await _context.SaveChangesAsync();
+            return Ok(new { existingCourse.CourseId });
         }
 
         // POST: api/Courses
@@ -304,13 +384,14 @@ namespace UNI.Controllers
         {
             public string Title { get; set; }
             public string Description { get; set; }
-            public string UserId { get; set; }
             public int CategoryId { get; set; }
+            public string UserId { get; set; }
             public List<BlockDto> Blocks { get; set; }
         }
 
         public class BlockDto
         {
+            public int? Id { get; set; } // Id для существующих блоков, null для новых
             public string Title { get; set; }
             public int Order { get; set; }
             public List<TopicDto> Topics { get; set; }
@@ -318,6 +399,7 @@ namespace UNI.Controllers
 
         public class TopicDto
         {
+            public int? Id { get; set; } // Id для существующих тем, null для новых
             public string Title { get; set; }
             public int Order { get; set; }
             public List<StepDto> Steps { get; set; }
@@ -325,6 +407,7 @@ namespace UNI.Controllers
 
         public class StepDto
         {
+            public int? Id { get; set; } // Id для существующих шагов, null для новых
             public string Title { get; set; }
             public string Type { get; set; }
             public string Content { get; set; }

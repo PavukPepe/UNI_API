@@ -46,6 +46,19 @@ namespace UNI.Controllers
             return Ok(reviews);
         }
 
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Review>>> GetComments()
+        {
+            var comments = await _context.Reviews.ToListAsync();
+
+            if (comments == null || !comments.Any())
+            {
+                return NotFound(new { message = "Комментарии не найдены" });
+            }
+
+            return Ok(comments);
+        }
+
         // GET: api/Reviews/5 - Получить конкретный отзыв по ID
         [HttpGet("{id}")]
         public async Task<ActionResult<Review>> GetReview(int id)
