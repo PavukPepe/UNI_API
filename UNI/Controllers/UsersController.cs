@@ -144,6 +144,7 @@ namespace UNI.Controllers
             return Ok(new
             {
                 userId = user.UserId,
+                status = user.IsBlocked,
                 email = user.Email,
                 token = token,
                 roles = roles

@@ -77,6 +77,7 @@ namespace UNI.Controllers
                     rating = Math.Round(c.Reviews.Select(c => c.UserRating).Average() ?? 0d, 2),
                     progress = 100, // Пока захардкодим
                     image = c.CourseLogo ?? "/course.png",
+                    status = c.IsApproved,
                     categoryId = c.CategoryId // Добавляем для фронтенда
                 })
                 .ToListAsync();
