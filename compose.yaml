@@ -1,0 +1,15 @@
+﻿services:
+  uni:
+    container_name: sergey-api
+    build:
+      context: .
+      dockerfile: UNI/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8080"
+    networks:
+      - sergey-network
+
+networks:
+  sergey-network:
+    external: true
