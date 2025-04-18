@@ -35,31 +35,75 @@ namespace UNI.Controllers
             return await _context.Users.ToListAsync();
         }
 
+        public class UserDto
+        {
+            public int UserId { get; set; }
+            public string Email { get; set; }
+            public string FullName { get; set; }
+            public string ProfilePicture { get; set; }
+            public DateTime? RegistrationDate { get; set; }
+            public bool? IsBlocked { get; set; }
+            public List<CertificateDto> Certificates { get; set; } = new List<CertificateDto>();
+        }
+
+        public class CertificateDto
+        {
+            public int CertificateId { get; set; }
+            public int? CourseId { get; set; }
+            public string CourseTitle { get; set; }
+            public DateTime? IssueDate { get; set; }
+            public string CertificateCode { get; set; }
+        }
+
         // GET: api/Users/5
         [HttpGet("{id}")]
-        public async Task<ActionResult<User>> GetUser(int id)
+        public async Task<ActionResult<UserDto>> GetUser(int id)
         {
-            var user = await _context.Users.FindAsync(id);
+            var user = await _context.Users
+                .Include(c => c.Certificates)
+                    .ThenInclude(c => c.Course) // Загружаем данные курса
+                .FirstOrDefaultAsync(u => u.UserId == id);
 
             if (user == null)
             {
                 return NotFound();
             }
 
-            return user;
+            var userDto = new UserDto
+            {
+                UserId = user.UserId,
+                Email = user.Email,
+                FullName = user.FullName,
+                ProfilePicture = user.ProfilePicture,
+                RegistrationDate = user.RegistrationDate,
+                IsBlocked = user.IsBlocked,
+                Certificates = user.Certificates.Select(c => new CertificateDto
+                {
+                    CertificateId = c.CertificateId,
+                    CourseId = c.CourseId,
+                    CourseTitle = c.Course?.CourseTitle ?? "Название курса",
+                    IssueDate = c.IssueDate,
+                    CertificateCode = c.CertificateCode
+                }).ToList()
+            };
+
+            return Ok(userDto);
         }
 
         // PUT: api/Users/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutUser(int id, User user)
+        public async Task<IActionResult> UpdateUser(int id, [FromBody] UserDto userDto)
         {
-            if (id != user.UserId)
+            var user = await _context.Users.FindAsync(id);
+            if (user == null)
             {
-                return BadRequest();
+                return NotFound();
             }
 
-            _context.Entry(user).State = EntityState.Modified;
+            // Обновляем поля пользователя
+            user.FullName = userDto.FullName;
+            user.Email = userDto.Email;
+            user.ProfilePicture = userDto.ProfilePicture; // Сохраняем URL фото
 
             try
             {
@@ -67,18 +111,17 @@ namespace UNI.Controllers
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!UserExists(id))
+                if (!_context.Users.Any(e => e.UserId == id))
                 {
                     return NotFound();
                 }
-                else
-                {
-                    throw;
-                }
+                throw;
             }
 
             return NoContent();
         }
+
+        // DTO для обновления пользователя
 
         [HttpPost("register")]
         public async Task<ActionResult<User>> Register([FromBody] RegisterData request)
