@@ -122,6 +122,7 @@ namespace UNI.Controllers
             review.CourseId = courseId;
             review.SubmissionDate = DateTime.Now;
             review.UserRating = review.UserRating ?? 0; // Устанавливаем рейтинг по умолчанию, если null
+            review.User = _context.Users.FirstOrDefault(c => c.UserId == review.UserId);
 
             _context.Reviews.Add(review);
             await _context.SaveChangesAsync();

@@ -75,7 +75,7 @@ namespace UNI.Controllers
                     description = c.CourseDescription,
                     students = _context.Users.Include(u => u.Payments).Count(uc => uc.Payments.Any(cr => cr.CourseId == c.CourseId)),
                     rating = Math.Round(c.Reviews.Select(c => c.UserRating).Average() ?? 0d, 2),
-                    image = c.CourseLogo ?? "/course.png",
+                    image = !string.IsNullOrEmpty(c.CourseLogo) ? c.CourseLogo : "/course.png",
                     status = c.IsApproved,
                     categoryId = c.CategoryId // Добавляем для фронтенда
                 })
@@ -211,8 +211,9 @@ namespace UNI.Controllers
                 title = course.CourseTitle,
                 price = course.CoursePrice,
                 instructor = course.Author?.FullName ?? "Неизвестный автор",
+                instructorImg = course.Author?.ProfilePicture ?? "/course.png",
                 description = course.CourseDescription,
-                logo = course.CourseLogo ?? "/course.png",
+                logo = !string.IsNullOrEmpty(course.CourseLogo) ? course.CourseLogo : "/course.png",
                 categoryId = course.CategoryId,
                 reviews = course.Reviews.Select(r => new
                 {
@@ -281,6 +282,7 @@ namespace UNI.Controllers
             existingCourse.CourseDescription = courseDto.Description;
             existingCourse.CategoryId = courseDto.CategoryId;
             existingCourse.AuthorId = Convert.ToInt32(courseDto.UserId);
+            existingCourse.CoursePrice = Convert.ToInt32(courseDto.Price);
             existingCourse.CourseLogo = courseDto.ImageUrl;
 
             // Обработка блоков
@@ -415,6 +417,7 @@ namespace UNI.Controllers
                 CourseDescription = courseDto.Description,
                 CategoryId = courseDto.CategoryId,
                 AuthorId = Convert.ToInt32(courseDto.UserId),
+                CoursePrice = Convert.ToInt32(courseDto.Price),
                 CreationDate = DateTime.Now,
                 IsApproved = false,
                 CourseLogo = courseDto.ImageUrl
@@ -489,9 +492,8 @@ namespace UNI.Controllers
             public string Description { get; set; }
             public int CategoryId { get; set; }
             public string UserId { get; set; }
-
+            public int Price { get; set; }
             public string? ImageUrl { get; set; }
-
             public List<BlockDto> Blocks { get; set; }
         }
 

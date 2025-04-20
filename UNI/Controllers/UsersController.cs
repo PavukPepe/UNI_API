@@ -40,7 +40,7 @@ namespace UNI.Controllers
             public int UserId { get; set; }
             public string Email { get; set; }
             public string FullName { get; set; }
-            public string ProfilePicture { get; set; }
+            public string? ProfilePicture { get; set; }
             public DateTime? RegistrationDate { get; set; }
             public bool? IsBlocked { get; set; }
             public List<CertificateDto> Certificates { get; set; } = new List<CertificateDto>();
@@ -59,10 +59,10 @@ namespace UNI.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<UserDto>> GetUser(int id)
         {
-            var user = await _context.Users
+            var user =  _context.Users
                 .Include(c => c.Certificates)
                     .ThenInclude(c => c.Course) // Загружаем данные курса
-                .FirstOrDefaultAsync(u => u.UserId == id);
+                .FirstOrDefault(u => u.UserId == id);
 
             if (user == null)
             {

@@ -88,6 +88,10 @@ namespace UNI.Controllers
         [HttpPost]
         public async Task<ActionResult<Payment>> PostPayment(Payment payment)
         {
+            if (_context.Payments.Any(c => c.UserId == payment.UserId && c.CourseId == payment.CourseId))
+            {
+                return Ok("Попытка повторной покупки курса");
+            }
             payment.PaymentDate = DateTime.Now;
             _context.Payments.Add(payment);
             await _context.SaveChangesAsync();
